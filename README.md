@@ -13,7 +13,12 @@ How to build:
 	git submodule update --init --recursive --progress
 ```
 
-3. Activate `esp-idf` and build:
+3. Configure:
+```
+	idf.py menuconfig
+```
+
+4. Build:
 ```
 	idf.py build
 ```
