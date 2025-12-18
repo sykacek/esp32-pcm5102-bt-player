@@ -18,6 +18,8 @@
 #include "driver/i2s_std.h"
 #include "freertos/ringbuf.h"
 
+#include "sys/lock.h"
+
 #include "esp_dsp.h"
 
 #define RINGBUF_HIGHEST_WATER_LEVEL    (32 * 1024)
@@ -62,8 +64,8 @@ static RingbufHandle_t s_ringbuf_i2s = NULL;     /* handle of ringbuffer for I2S
 static SemaphoreHandle_t s_i2s_write_semaphore = NULL;
 static uint16_t ringbuffer_mode = RINGBUFFER_MODE_PROCESSING;
 
-static float processing_buffer[240 * 3] = {0.0f};
-
+static float buf_A[240 * 3] = {0.0f};
+static float buf_B[240 * 3] = {0.0f};
 
 /*********************************
  * GLOBAL VARIABLE DECLARATIONS
@@ -142,6 +144,59 @@ static void bt_app_task_handler(void *arg)
     }
 }
 
+// 29 coeffs
+static float fir_c[] = {
+    0.000000000000000000,
+    0.000102179515863927,
+    0.000465344506094205,
+    0.000337298241717769,
+    -0.001691802912383797,
+    -0.005405113410158031,
+    -0.006443888178614036,
+    0.001937105131520209,
+    0.020561355128444758,
+    0.035532590278190113,
+    0.020907617230880429,
+    -0.042346382568283429,
+    -0.143838128722502540,
+    -0.240164605103469431,
+    0.720092861725399658,
+    -0.240164605103469431,
+    -0.143838128722502567,
+    -0.042346382568283429,
+    0.020907617230880429,
+    0.035532590278190140,
+    0.020561355128444769,
+    0.001937105131520210,
+    -0.006443888178614050,
+    -0.005405113410158034,
+    -0.001691802912383798,
+    0.000337298241717769,
+    0.000465344506094205,
+    0.000102179515863928,
+    0.000000000000000000,
+};
+
+static void convolve(float *in, float *out, size_t size, float *coeff, size_t n){
+	int i, j, k;
+	float temp;
+	for(k = 0; k < size; ++k){
+		temp = 0.0f;
+
+		for(i = 0; i < n; ++i){
+			j = k - i;
+
+			if(j >= 0){
+				//temp += in[j]; 
+				temp += coeff[i] * in[j]; 
+			}
+		}
+
+		out[k] = temp;
+		//out[k] = in[k];
+	}
+}
+
 
 // DATA PROCESSING GOES HERE
 
@@ -158,6 +213,7 @@ static void bt_i2s_task_handler(void *arg)
     const size_t item_size_upto = 240 * 6;
     size_t item_count = 0;
     size_t bytes_written = 0;
+	// this is on core 0
     ESP_LOGI("DEBUG I2S", "created task on core %d", (int)xTaskGetCoreID(s_bt_i2s_task_handle));
 
     for (;;) {
@@ -177,17 +233,23 @@ static void bt_i2s_task_handler(void *arg)
 		ESP_LOGI("DEBUG", "read %d items, volume %f (%d dB)", item_count, g_volume_percent, g_volume_db);
 
 		// 0 dB = 64 in g_volume_percent
-		//float exp = (float)g_volume_db / 10.0f;
 		float exp = (float)g_volume_db / 20.0f;
 		float mult = powf(10.0f, exp);
-		//float mult = g_volume_percent;
 
-		short2float(data, processing_buffer, item_count);
-		dsps_mulc_f32_ansi(processing_buffer, processing_buffer, item_count, mult, 1, 1);
-		float2short(processing_buffer, data, item_count);
+		short2float(data, buf_A, item_count);
 
-                i2s_channel_write(tx_chan, data, item_size, &bytes_written, portMAX_DELAY);
-                vRingbufferReturnItem(s_ringbuf_i2s, (void *)data);
+#define HARD
+#ifdef HARD
+		convolve(buf_A, buf_B, 720, fir_c, 77);
+		dsps_mulc_f32_ansi(buf_B, buf_B, item_count, mult, 1, 1);
+#else
+		dsps_mulc_f32_ansi(buf_A, buf_A, item_count, mult, 1, 1);
+#endif //EASY
+
+		float2short(buf_A, data, item_count);
+
+		i2s_channel_write(tx_chan, data, item_size, &bytes_written, portMAX_DELAY);
+		vRingbufferReturnItem(s_ringbuf_i2s, (void *)data);
             }
         }
 

@@ -269,7 +269,8 @@ static void volume_set_by_controller(uint8_t volume)
 
 	s_volume = volume;
 	g_volume_percent = (float)volume / 0x7f;
-	g_volume_db = (int8_t)volume - 64;
+	//g_volume_db = (int8_t)volume - 64;
+	g_volume_db = (int8_t)volume - 84;
 
 	ESP_LOGI(BT_RC_TG_TAG, "volume is %f (%d dB)", g_volume_percent, g_volume_db);
 
