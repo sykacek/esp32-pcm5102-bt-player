@@ -211,6 +211,7 @@ static void bt_i2s_task_handler(void *arg)
      * Transmit `dma_frame_num * dma_desc_num` bytes to DMA is trade-off.
      */
     const size_t item_size_upto = 240 * 6;
+    //const size_t item_size_upto = 1024;
     size_t item_count = 0;
     size_t bytes_written = 0;
 	// this is on core 0
@@ -238,7 +239,6 @@ static void bt_i2s_task_handler(void *arg)
 
 		short2float(data, buf_A, item_count);
 
-#define HARD
 #ifdef HARD
 		convolve(buf_A, buf_B, 720, fir_c, 77);
 		dsps_mulc_f32_ansi(buf_B, buf_B, item_count, mult, 1, 1);
